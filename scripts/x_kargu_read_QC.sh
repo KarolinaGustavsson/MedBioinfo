@@ -88,15 +88,39 @@ fi
 # Search for adapter sequences
 if [ ! -f $ANALYSES_DIR/adapter_search_report.txt ]; then
   echo "Searching for adapter sequences..."
-  srun --cpus-per-task=4 apptainer exec /proj/applied_bioinformatics/users/x_kargu/MedBioinfo/bioinformatics_tools.sif seqkit locate -i -p "AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC" $DATA_DIR/*.fastq.gz > $ANALYSES_DIR/adapter_search_report.txt
+  srun --cpus-per-task=4 apptainer exec /proj/applied_bioinformatics/users/x_kargu/MedBioinfo/bioinformatics_tools.sif seqkit locate -i -p "AGATCGGA" $DATA_DIR/*.fastq.gz > $ANALYSES_DIR/adapter_search_report.txt
 fi
 
 # Create FastQC output directory
 mkdir -p $ANALYSES_DIR/fastqc
 
 # Run FastQC on all FASTQ files
-srun --cpus-per-task=2 --time=00:30:00 apptainer exec /proj/applied_bioinformatics/users/x_kargu/MedBioinfo/bioinformatics_tools.sif xargs -I{} -a $RUN_ACCESSIONS_FILE fastqc $DATA_DIR/{}_1.fastq.gz $DATA_DIR/{}_2.fastq.gz -o $ANALYSES_DIR/fastqc
+srun --cpus-per-task=2 --time=00:30:00 apptainer exec exec --bind $DATA_DIR:/data_sra_fastq /proj/applied_bioinformatics/users/x_kargu/MedBioinfo/bioinformatics_tools.sif xargs -I{} -a $RUN_ACCESSIONS_FILE fastqc $DATA_DIR/{}_1.fastq.gz $DATA_DIR/{}_2.fastq.gz -o $ANALYSES_DIR/fastqc
+
+# see comment at the end but basically we don't have adapters and low quality is removed
+
+# Merging paired-end reads
+if [ ! -d $MERGED_DIR ]; then
+  mkdir -p $MERGED_DIR
+fi
+
+# Merge paired-end reads using FLASH
+echo "Merging paired-end reads..."
+srun --cpus-per-task=2 apptainer exec --bind $DATA_DIR:/data_sra_fastq /proj/applied_bioinformatics/users/x_kargu/MedBioinfo/bioinformatics_tools.sif xargs -I{} -a $RUN_ACCESSIONS_FILE flash /data_sra_fastq/{}_1.fastq.gz /data_sra_fastq/{}_2.fastq.gz -d $MERGED_DIR -o {}.flash 2>&1 | tee -a $ANALYSES_DIR/x_kargu_flash.log
 
 date
 echo "end of script"
 
+# after inspecting the html files I see that it was incorrect earlier, the adapters have been removed. in addition reads have been trimmed to exclude low quality scores
+# intital reads
+# apptainer exec --bind /proj/applied_bioinformatics/users/x_kargu/MedBioinfo/data/sra_fastq:/data_sra_fastq /proj/applied_bioinformatics/users/x_kargu/MedBioinfo/bioinformatics_tools.sif seqkit stats /data_sra_fastq/ERR6913284_1.fastq.gz
+
+#apptainer exec --bind /proj/applied_bioinformatics/users/x_kargu/MedBioinfo/data/sra_fastq:/data_sra_fastq /proj/applied_bioinformatics/users/x_kargu/MedBioinfo/bioinformatics_tools.sif seqkit stats /data_sra_fastq/ERR6913284_2.fastq.gz
+
+#merged: 
+# apptainer exec --bind /proj/applied_bioinformatics/users/x_kargu/MedBioinfo/data/merged_pairs:/merged_pairs /proj/applied_bioinformatics/users/x_kargu/MedBioinfo/bioinformatics_tools.sif seqkit stats /merged_pairs/ERR6913284.flash.extendedFrags.fastq
+# merged 1,048,239, initial 1,196,413, proportion merged 87.6%
+#average length of merged reads is 151.8, which is slightly longer than the initial reads' average length of 132.3 -> longer sequences formed
+# the .histogram file shows a distribution of read lengths, indicating the frequency of each read length. The peak at around 300 bp suggests that the library insert sizes are around this length, matching the expected average size of 350 bp, this is consistent  with the expected length
+
+# the warning we got earlier is As-is, FLASH is penalizing overlaps longer than 65 bp when considering them for possible combining, so ideally we would investigate this in more detail
