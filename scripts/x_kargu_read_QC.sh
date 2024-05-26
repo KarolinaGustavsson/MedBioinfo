@@ -5,7 +5,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --time=01:00:00
-#SBATCH --partition=tetralith  # Update with a valid partition name
+#SBATCH --partition=tetralith  # Correct partition specification
 
 echo "start of script"
 date
@@ -14,16 +14,24 @@ date
 WORK_DIR="/proj/applied_bioinformatics/users/x_kargu/MedBioinfo"
 DATA_DIR="$WORK_DIR/data/sra_fastq"
 ANALYSES_DIR="$WORK_DIR/analyses"
+LOGS_DIR="$WORK_DIR/logs"
 RUN_ACCESSIONS_FILE="$ANALYSES_DIR/x_kargu_run_accessions.txt"
 
 mkdir -p $DATA_DIR
 mkdir -p $ANALYSES_DIR
+mkdir -p $LOGS_DIR
 
-# Export run accessions
+# Export run accessions if not already done
 if [ ! -f $RUN_ACCESSIONS_FILE ]; then
   echo "Exporting run accessions..."
   sqlite3 -batch /proj/applied_bioinformatics/common_data/sample_collab.db \
   -noheader -csv "select run_accession from sample_annot spl left join sample2bioinformatician s2b using(patient_code) where username='x_kargu';" > $RUN_ACCESSIONS_FILE
+fi
+
+# Verify the run accessions file creation
+if [ ! -f $RUN_ACCESSIONS_FILE ]; then
+  echo "Run accessions file creation failed. Exiting script."
+  exit 1
 fi
 
 # Test download with the first accession
@@ -82,6 +90,12 @@ if [ ! -f $ANALYSES_DIR/adapter_search_report.txt ]; then
   echo "Searching for adapter sequences..."
   srun --cpus-per-task=4 apptainer exec /proj/applied_bioinformatics/users/x_kargu/MedBioinfo/bioinformatics_tools.sif seqkit locate -i -p "AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC" $DATA_DIR/*.fastq.gz > $ANALYSES_DIR/adapter_search_report.txt
 fi
+
+# Create FastQC output directory
+mkdir -p $ANALYSES_DIR/fastqc
+
+# Run FastQC on all FASTQ files
+srun --cpus-per-task=2 --time=00:30:00 apptainer exec /proj/applied_bioinformatics/users/x_kargu/MedBioinfo/bioinformatics_tools.sif xargs -I{} -a $RUN_ACCESSIONS_FILE fastqc $DATA_DIR/{}_1.fastq.gz $DATA_DIR/{}_2.fastq.gz -o $ANALYSES_DIR/fastqc
 
 date
 echo "end of script"
