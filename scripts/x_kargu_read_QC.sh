@@ -124,3 +124,43 @@ echo "end of script"
 # the .histogram file shows a distribution of read lengths, indicating the frequency of each read length. The peak at around 300 bp suggests that the library insert sizes are around this length, matching the expected average size of 350 bp, this is consistent  with the expected length
 
 # the warning we got earlier is As-is, FLASH is penalizing overlaps longer than 65 bp when considering them for possible combining, so ideally we would investigate this in more detail
+
+# Create directory for reference sequences
+mkdir -p $DATA_DIR/reference_seqs
+
+# Download PhiX genome sequence
+apptainer exec /proj/applied_bioinformatics/users/x_kargu/MedBioinfo/bioinformatics_tools.sif efetch -db nuccore -id NC_001422 -format fasta > $DATA_DIR/reference_seqs/PhiX_NC_001422.fna
+
+# Create directory for Bowtie2 index files
+mkdir -p $DATA_DIR/bowtie2_DBs
+
+# Build Bowtie2 index for PhiX genome
+srun apptainer exec /proj/applied_bioinformatics/users/x_kargu/MedBioinfo/bioinformatics_tools.sif bowtie2-build -f $DATA_DIR/reference_seqs/PhiX_NC_001422.fna $DATA_DIR/bowtie2_DBs/PhiX_bowtie2_DB
+
+# Create directory for Bowtie alignment results
+mkdir -p $ANALYSES_DIR/bowtie
+
+# Align reads to PhiX reference genome and save results
+srun --cpus-per-task=8 apptainer exec --bind $DATA_DIR/merged_pairs:/merged_pairs --bind $DATA_DIR/bowtie2_DBs:/bowtie2_DBs /proj/applied_bioinformatics/users/x_kargu/MedBioinfo/bioinformatics_tools.sif bowtie2 -x /bowtie2_DBs/PhiX_bowtie2_DB -U /merged_pairs/ERR*.extendedFrags.fastq -S $ANALYSES_DIR/bowtie/x_kargu_merged2PhiX.sam --threads 8 --no-unal 2>&1 | tee $ANALYSES_DIR/bowtie/x_kargu_bowtie_merged2PhiX.log
+
+# we have no hits for phi :)
+
+# let's try covid
+# Download SARS-CoV-2 genome sequence
+apptainer exec /proj/applied_bioinformatics/users/x_kargu/MedBioinfo/bioinformatics_tools.sif efetch -db nuccore -id NC_045512 -format fasta > $DATA_DIR/reference_seqs/SC2_NC_045512.fna
+
+# Build Bowtie2 index for SARS-CoV-2 genome
+srun apptainer exec /proj/applied_bioinformatics/users/x_kargu/MedBioinfo/bioinformatics_tools.sif bowtie2-build -f $DATA_DIR/reference_seqs/SC2_NC_045512.fna $DATA_DIR/bowtie2_DBs/SC2_bowtie2_DB
+
+# Align reads to SARS-CoV-2 reference genome and save results
+srun --cpus-per-task=8 apptainer exec --bind $DATA_DIR/merged_pairs:/merged_pairs --bind $DATA_DIR/bowtie2_DBs:/bowtie2_DBs /proj/applied_bioinformatics/users/x_kargu/MedBioinfo/bioinformatics_tools.sif bowtie2 -x /bowtie2_DBs/SC2_bowtie2_DB -U /merged_pairs/ERR*.extendedFrags.fastq -S $ANALYSES_DIR/bowtie/x_kargu_merged2SC2.sam --threads 8 --no-unal 2>&1 | tee $ANALYSES_DIR/bowtie/x_kargu_bowtie_merged2SC2.log
+
+# we did not get any hits for that, I tried to download streptococcus mitis but got the wrong assebly number so I skipped that
+# Run FastQC on all FASTQ files
+srun --cpus-per-task=2 --time=00:30:00 apptainer exec --bind $DATA_DIR:/data_sra_fastq /proj/applied_bioinformatics/users/x_kargu/MedBioinfo/bioinformatics_tools.sif xargs -I{} -a $RUN_ACCESSIONS_FILE fastqc $DATA_DIR/{}_1.fastq.gz $DATA_DIR/{}_2.fastq.gz -o $ANALYSES_DIR/fastqc
+
+# Combine quality control results into one unique report for all samples analysed
+srun singularity exec --bind /proj/applied_bioinformatics/users/x_kargu/MedBioinfo/data/merged_pairs:/data/merged_pairs --bind /proj/applied_bioinformatics/users/x_kargu/MedBioinfo/analyses/fastqc:/analyses/fastqc --bind /proj/applied_bioinformatics/users/x_kargu/MedBioinfo/analyses/bowtie:/analyses/bowtie /proj/applied_bioinformatics/users/x_kargu/MedBioinfo/bioinformatics_tools.sif multiqc --force --title "x_kargu sample sub-set" /data/merged_pairs/ /analyses/fastqc/ /analyses/bowtie/ -o /proj/applied_bioinformatics/users/x_kargu/MedBioinfo/analyses/ --filename x_kargu_sample_subset_multiqc_report.html
+
+date
+echo "end of script"
